@@ -234,8 +234,11 @@ body::before{
 .cal-day:hover{background:rgba(244,143,177,0.1)}
 .cal-day.today{background:var(--pink-100);font-weight:700;border:2px solid var(--pink-300)}
 .cal-day.other{color:#ccc}
-.cal-day .mood-emoji{font-size:16px;line-height:1}
-.cal-day .day-num{font-size:11px;line-height:1}
+.cal-moods{display:flex;gap:1px;line-height:1}
+.cal-mood-my,.cal-mood-her{font-size:12px;width:16px;text-align:center}
+.cal-mood-my{color:var(--pink-500)}
+.cal-mood-her{color:#1976D2}
+.cal-day .day-num{font-size:10px;line-height:1}
 
 /* Mood picker modal */
 .mood-overlay{
@@ -245,9 +248,15 @@ body::before{
 }
 .mood-overlay.show{opacity:1;pointer-events:auto}
 .mood-picker{
-  background:white;border-radius:var(--radius-lg);padding:28px;
-  box-shadow:var(--shadow-lg);text-align:center;max-width:340px;width:90%;
+  background:white;border-radius:var(--radius-lg);padding:24px;
+  box-shadow:var(--shadow-lg);text-align:center;max-width:420px;width:92%;
 }
+.mood-dual{display:flex;gap:12px;margin-top:8px}
+.mood-col{flex:1;text-align:center}
+.mood-col-title{font-size:13px;font-weight:500;margin-bottom:8px}
+.mood-col .mood-options{gap:4px}
+.mood-col .mood-opt{width:38px;height:38px;font-size:18px}
+.mood-note{width:100%;margin-top:10px;padding:8px 10px;border-radius:10px;border:1.5px solid var(--pink-200);font-size:12px;outline:none;resize:none;font-family:'Noto Sans SC',sans-serif;background:rgba(255,255,255,.6);min-height:36px}
 .mood-picker h3{font-size:18px;margin-bottom:6px}
 .mood-picker .date-label{font-size:13px;color:var(--text-light);margin-bottom:14px}
 .mood-options{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
@@ -625,11 +634,21 @@ body::before{
 <!-- Mood picker overlay -->
 <div class="mood-overlay" id="mood-overlay">
   <div class="mood-picker">
-    <h3>今天心情如何？</h3>
+    <h3>记录心情</h3>
     <p class="date-label" id="mood-date-label"></p>
-    <div class="mood-options" id="mood-options"></div>
-    <textarea id="mood-note-input" placeholder="写点什么吧...（可选）" rows="2" style="width:100%;margin-top:12px;padding:10px 14px;border-radius:12px;border:1.5px solid var(--pink-200);font-size:13px;outline:none;resize:none;font-family:'Noto Sans SC',sans-serif;background:rgba(255,255,255,.6);transition:border-color .2s"></textarea>
-    <button class="btn btn-pink" style="margin-top:12px;width:100%" id="mood-save">保存心情</button>
+    <div class="mood-dual">
+      <div class="mood-col">
+        <div class="mood-col-title">👧 我的心情</div>
+        <div class="mood-options" id="mood-options-my"></div>
+        <textarea class="mood-note" id="mood-note-my" placeholder="备注..." rows="2"></textarea>
+      </div>
+      <div class="mood-col">
+        <div class="mood-col-title">👸 她的心情</div>
+        <div class="mood-options" id="mood-options-her"></div>
+        <textarea class="mood-note" id="mood-note-her" placeholder="备注..." rows="2"></textarea>
+      </div>
+    </div>
+    <button class="btn btn-pink" style="margin-top:14px;width:100%" id="mood-save">保存心情</button>
     <button class="btn btn-outline btn-sm" style="margin-top:6px;width:100%" id="mood-cancel">取消</button>
   </div>
 </div>
@@ -771,7 +790,7 @@ async function loadAllData() {
       sbFetch('/notes?select=*&order=created_at'),
     ]);
     const moodsMap = {};
-    m.forEach(r => { moodsMap[r.date] = { emoji: r.emoji, note: r.note || '' }; });
+    m.forEach(r => { moodsMap[r.date] = { my: { emoji: r.my_emoji, note: r.my_note || '' }, her: { emoji: r.her_emoji, note: r.her_note || '' } }; });
     appData.moods = moodsMap;
     appData.wishes = w.map(r => ({ id: r.id, title: r.title, fulfilled: r.fulfilled, createdAt: r.created_at }));
     appData.notes = n.map(r => ({ id: r.id, author: r.author, type: r.type, content: r.content, time: r.created_at }));
@@ -785,10 +804,15 @@ function loadLocalFallback() {
   try { const r = localStorage.getItem('our_story_data'); if (r) appData = JSON.parse(r); } catch(e) {}
 }
 
-async function saveMood(dateStr, emoji, note) {
-  appData.moods[dateStr] = { emoji, note };
-  try { await sbFetch('/moods?date=eq.' + encodeURIComponent(dateStr), { method: 'DELETE' }); } catch(e) {}
-  try { await sbFetch('/moods', { method: 'POST', body: JSON.stringify({ date: dateStr, emoji, note }) }); } catch(e) {}
+async function saveMood(dateStr, myEmoji, myNote, herEmoji, herNote) {
+  if (!appData.moods[dateStr]) appData.moods[dateStr] = { my:{emoji:'',note:''}, her:{emoji:'',note:''} };
+  if (myEmoji !== undefined) appData.moods[dateStr].my = { emoji: myEmoji || '', note: myNote || '' };
+  if (herEmoji !== undefined) appData.moods[dateStr].her = { emoji: herEmoji || '', note: herNote || '' };
+  const m = appData.moods[dateStr];
+  try {
+    await sbFetch('/moods?date=eq.' + encodeURIComponent(dateStr), { method: 'DELETE' });
+    await sbFetch('/moods', { method: 'POST', body: JSON.stringify({ date: dateStr, my_emoji: m.my.emoji, my_note: m.my.note, her_emoji: m.her.emoji, her_note: m.her.note }) });
+  } catch(e) {}
 }
 
 async function deleteMood(dateStr) {
@@ -889,12 +913,9 @@ const MOOD_LABELS = { '😊':'开心','🥰':'恋爱','😤':'生气','😢':'�
 
 let calYear, calMonth, selectedDate = null;
 
-// Helper: get mood object (handle legacy string format)
+// Helper: get mood object for a date
 function getMood(dateStr) {
-  const m = appData.moods[dateStr];
-  if (!m) return null;
-  if (typeof m === 'string') return { emoji: m, note: '' };
-  return m;
+  return appData.moods[dateStr] || null;
 }
 
 function renderCalendar() {
@@ -920,12 +941,15 @@ function renderCalendar() {
     const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const isToday = dateStr === todayStr;
     const mood = getMood(dateStr);
-    const noteAttr = (mood && mood.note) ? ` data-note="${mood.note.replace(/"/g,'&quot;')}"` : '';
+    const myEmoji = mood?.my?.emoji || '';
+    const herEmoji = mood?.her?.emoji || '';
 
-    html += `<div class="cal-day${isToday?' today':''}" data-date="${dateStr}"${noteAttr}>
+    html += `<div class="cal-day${isToday?' today':''}" data-date="${dateStr}">
       <span class="day-num">${d}</span>
-      ${mood ? `<span class="mood-emoji">${mood.emoji}</span>` : ''}
-      ${(mood && mood.note) ? '<span class="note-dot"></span>' : ''}
+      <span class="cal-moods">
+        <span class="cal-mood-my">${myEmoji || '<i style="color:#ddd">·</i>'}</span>
+        <span class="cal-mood-her">${herEmoji || '<i style="color:#ddd">·</i>'}</span>
+      </span>
     </div>`;
   }
 
@@ -952,33 +976,26 @@ function renderCalendar() {
 function renderMoodSummary() {
   const summary = document.getElementById('mood-summary');
   const monthPrefix = `${calYear}-${String(calMonth+1).padStart(2,'0')}`;
-  const counts = {};
-  MOODS.forEach(m => counts[m] = 0);
-  let total = 0, noteCount = 0;
+  let myCount = 0, herCount = 0;
 
   Object.entries(appData.moods).forEach(([date, val]) => {
     if (date.startsWith(monthPrefix)) {
-      const mood = getMood(date);
-      if (mood && counts[mood.emoji] !== undefined) { counts[mood.emoji]++; total++; }
-      if (mood && mood.note) noteCount++;
+      if (val.my?.emoji) myCount++;
+      if (val.her?.emoji) herCount++;
     }
   });
 
-  if (total === 0) {
+  if (myCount === 0 && herCount === 0) {
     summary.innerHTML = '<div class="mood-summary-title">本月还没有记录心情哦～ 点日期开始记录吧 ✨</div>';
     return;
   }
 
-  let items = '';
-  MOODS.forEach(m => {
-    if (counts[m] > 0) {
-      items += `<span class="mood-summary-item">${m} <span class="ms-count">${counts[m]}</span>天</span>`;
-    }
-  });
-
   summary.innerHTML = `
-    <div class="mood-summary-title">📊 本月心情概览 · 共记录 <b>${total}</b> 天${noteCount > 0 ? ` · ${noteCount} 条备注` : ''}</div>
-    <div class="mood-summary-items">${items}</div>`;
+    <div class="mood-summary-title">📊 本月心情概览</div>
+    <div class="mood-summary-items">
+      <span class="mood-summary-item">👧 我记录了 <b>${myCount}</b> 天</span>
+      <span class="mood-summary-item">👸 她记录了 <b>${herCount}</b> 天</span>
+    </div>`;
 }
 
 function openMoodPicker(dateStr) {
@@ -986,31 +1003,33 @@ function openMoodPicker(dateStr) {
   document.getElementById('mood-date-label').textContent = dateStr;
   document.getElementById('mood-overlay').classList.add('show');
 
-  const mood = getMood(dateStr);
-  const currentEmoji = mood ? mood.emoji : '';
+  const mood = getMood(dateStr) || { my:{emoji:'',note:''}, her:{emoji:'',note:''} };
 
-  const opts = document.getElementById('mood-options');
-  opts.innerHTML = MOODS.map(m => {
-    const label = MOOD_LABELS[m] || '';
-    return `<div class="mood-opt${m === currentEmoji ? ' selected' : ''}" data-mood="${m}" title="${label}">${m}</div>`;
-  }).join('');
-
-  opts.querySelectorAll('.mood-opt').forEach(opt => {
-    opt.addEventListener('click', () => {
-      opts.querySelectorAll('.mood-opt').forEach(o => o.classList.remove('selected'));
-      opt.classList.add('selected');
+  // Render emoji options for both
+  ['my','her'].forEach(who => {
+    const opts = document.getElementById('mood-options-' + who);
+    const curEmoji = mood[who]?.emoji || '';
+    opts.innerHTML = MOODS.map(m => {
+      return `<div class="mood-opt${m === curEmoji ? ' selected' : ''}" data-mood="${m}">${m}</div>`;
+    }).join('');
+    opts.querySelectorAll('.mood-opt').forEach(opt => {
+      opt.addEventListener('click', () => {
+        opts.querySelectorAll('.mood-opt').forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+      });
     });
+    document.getElementById('mood-note-' + who).value = mood[who]?.note || '';
   });
-
-  // Pre-fill note text
-  document.getElementById('mood-note-input').value = mood ? mood.note : '';
 }
 
 document.getElementById('mood-save').addEventListener('click', async () => {
-  const selected = document.querySelector('.mood-opt.selected');
-  const note = document.getElementById('mood-note-input').value.trim();
-  if (selected && selectedDate) {
-    await saveMood(selectedDate, selected.dataset.mood, note);
+  const myEmoji = document.querySelector('#mood-options-my .mood-opt.selected')?.dataset.mood || '';
+  const herEmoji = document.querySelector('#mood-options-her .mood-opt.selected')?.dataset.mood || '';
+  const myNote = document.getElementById('mood-note-my').value.trim();
+  const herNote = document.getElementById('mood-note-her').value.trim();
+
+  if (selectedDate) {
+    await saveMood(selectedDate, myEmoji, myNote, herEmoji, herNote);
     renderCalendar();
   }
   document.getElementById('mood-overlay').classList.remove('show');
@@ -1521,9 +1540,13 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
       // Push moods to Supabase
       if (imported.moods) {
         for (const [date, val] of Object.entries(imported.moods)) {
-          const emoji = typeof val === 'string' ? val : val.emoji;
-          const note = typeof val === 'string' ? '' : (val.note || '');
-          await saveMood(date, emoji, note);
+          if (val.my || val.her) {
+            await saveMood(date, val.my?.emoji||'', val.my?.note||'', val.her?.emoji||'', val.her?.note||'');
+          } else {
+            const emoji = typeof val === 'string' ? val : (val.emoji || '');
+            const note = typeof val === 'string' ? '' : (val.note || '');
+            await saveMood(date, emoji, note, undefined, undefined);
+          }
         }
       }
       // Push wishes
