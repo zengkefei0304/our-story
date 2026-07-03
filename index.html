@@ -544,7 +544,6 @@ body::before{
   <button class="nav-btn" data-page="wish">🎁 愿望</button>
   <button class="nav-btn" data-page="notes">💬 碎碎念</button>
   <button class="nav-btn" data-page="mem">📸 回忆</button>
-  <span id="sync-status" style="font-size:11px;margin-left:auto;padding:5px 12px;border-radius:10px;background:#fff;font-weight:500">⏳ 同步中</span>
 </nav>
 
 <!-- ============================================
@@ -724,7 +723,6 @@ body::before{
      DATA SYNC BAR
      ============================================ -->
 <div class="sync-bar">
-  <span id="sync-status" style="font-size:11px">⏳ 连接中...</span>
   <button class="btn btn-outline btn-sm" id="btn-export">📥 导出</button>
   <button class="btn btn-outline btn-sm" id="btn-import">📤 导入</button>
   <input type="file" id="import-file" accept=".json" style="display:none">
@@ -772,10 +770,8 @@ async function loadAllData() {
     appData.moods = moodsMap;
     appData.wishes = w.map(r => ({ id: r.id, title: r.title, fulfilled: r.fulfilled, createdAt: r.created_at }));
     appData.notes = n.map(r => ({ id: r.id, author: r.author, type: r.type, content: r.content, time: r.created_at }));
-    setOnlineStatus(true, '');
   } catch(e) {
     console.warn('Load failed:', e.message);
-    setOnlineStatus(false, '数据库连接失败');
     loadLocalFallback();
   }
 }
@@ -1545,23 +1541,10 @@ setInterval(refreshData, 30000);
 // ============================================
 // CONNECTION STATUS
 // ============================================
-let isOnline = true;
-function setOnlineStatus(status, msg) {
-  isOnline = status;
-  const el = document.getElementById('sync-status');
-  if (el) {
-    el.textContent = status ? '🟢 已同步' : '🔴 ' + msg;
-    el.style.color = status ? '#4CAF50' : '#FF5252';
-  }
-}
-
 async function checkSupabaseConnection() {
   try {
     await sbFetch('/moods?select=date&limit=1');
-    setOnlineStatus(true, '');
-  } catch(e) {
-    setOnlineStatus(false, '数据库连接失败');
-  }
+  } catch(e) {}
 }
 
 // ============================================
