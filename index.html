@@ -723,8 +723,9 @@ body::before{
      DATA SYNC BAR
      ============================================ -->
 <div class="sync-bar">
-  <button class="btn btn-outline btn-sm" id="btn-export">📥 导出数据</button>
-  <button class="btn btn-outline btn-sm" id="btn-import">📤 导入数据</button>
+  <span id="sync-status" style="font-size:11px">⏳ 连接中...</span>
+  <button class="btn btn-outline btn-sm" id="btn-export">📥 导出</button>
+  <button class="btn btn-outline btn-sm" id="btn-import">📤 导入</button>
   <input type="file" id="import-file" accept=".json" style="display:none">
 </div>
 
@@ -741,8 +742,14 @@ body::before{
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
 </script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
+// Check if Supabase SDK loaded
+if (typeof window.supabase === 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    document.body.insertAdjacentHTML('afterbegin', '<div style="position:fixed;top:0;left:0;right:0;background:#FF5252;color:white;text-align:center;padding:8px;z-index:9999;font-size:13px">⚠️ 数据服务加载失败，请检查网络后刷新页面</div>');
+  });
+}
 // ============================================
 // SUPABASE + LOCAL STORAGE DATA LAYER
 // ============================================
@@ -1560,13 +1567,37 @@ async function refreshData() {
 setInterval(refreshData, 30000);
 
 // ============================================
+// CONNECTION STATUS
+// ============================================
+let isOnline = true;
+function setOnlineStatus(status, msg) {
+  isOnline = status;
+  const el = document.getElementById('sync-status');
+  if (el) {
+    el.textContent = status ? '🟢 已同步' : '🔴 ' + msg;
+    el.style.color = status ? '#4CAF50' : '#FF5252';
+  }
+}
+
+async function checkSupabaseConnection() {
+  try {
+    const res = await sb.from('moods').select('date').limit(1);
+    setOnlineStatus(true, '');
+  } catch(e) {
+    setOnlineStatus(false, '数据库连接失败');
+  }
+}
+
+// ============================================
 // INITIALIZATION
 // ============================================
 async function init() {
   updateHomeDays();
   document.getElementById('page-home').classList.add('active');
-  // Load data from Supabase (with local fallback for offline)
-  await loadAllData();
+  if (typeof window.supabase !== 'undefined') {
+    await loadAllData();
+    await checkSupabaseConnection();
+  }
 }
 
 init();
