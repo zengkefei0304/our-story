@@ -713,37 +713,101 @@ body::before{
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 // ============================================
-// APP STATE & DATA MANAGEMENT
+// SUPABASE + LOCAL STORAGE DATA LAYER
 // ============================================
-const STORAGE_KEY = 'our_story_data';
+const SUPABASE_URL = 'https://ouvpvukpmrlzjnvrqpfs.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im91dnB2dWtwbXJsempudnJxcGZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwNTM2NDgsImV4cCI6MjA5ODYyOTY0OH0.Uqag616tShyOfuQ9ehb3lmfDPLZ9sjjE4XL8Djst3iY';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const defaultData = {
-  moods: {},
-  wishes: [],
-  notes: []
-};
+// Local cache for fast access
+let appData = { moods: {}, wishes: [], notes: [] };
 
-function loadData() {
+// Load all data from Supabase on startup
+async function loadAllData() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      // Merge with defaults to handle new fields
-      return { ...defaultData, ...parsed };
+    const [moodsRes, wishesRes, notesRes] = await Promise.all([
+      sb.from('moods').select('*').order('date'),
+      sb.from('wishes').select('*').order('created_at', { ascending: false }),
+      sb.from('notes').select('*').order('created_at', { ascending: true }),
+    ]);
+
+    if (moodsRes.data) {
+      const moodsMap = {};
+      moodsRes.data.forEach(r => { moodsMap[r.date] = { emoji: r.emoji, note: r.note || '' }; });
+      appData.moods = moodsMap;
     }
-  } catch(e) { console.warn('Data load failed:', e); }
-  return JSON.parse(JSON.stringify(defaultData));
+    if (wishesRes.data) appData.wishes = wishesRes.data.map(r => ({ id: r.id, title: r.title, fulfilled: r.fulfilled, createdAt: r.created_at }));
+    if (notesRes.data) appData.notes = notesRes.data.map(r => ({ id: r.id, author: r.author, type: r.type, content: r.content, time: r.created_at }));
+  } catch(e) {
+    console.warn('Supabase load failed, using local fallback:', e.message);
+    loadLocalFallback();
+  }
 }
 
-function saveData(data) {
+// Local fallback
+function loadLocalFallback() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch(e) { console.warn('Data save failed:', e); }
+    const raw = localStorage.getItem('our_story_data');
+    if (raw) appData = JSON.parse(raw);
+  } catch(e) {}
 }
 
-let appData = loadData();
+// Save mood to Supabase
+async function saveMood(dateStr, emoji, note) {
+  appData.moods[dateStr] = { emoji, note };
+  try {
+    await sb.from('moods').upsert({ date: dateStr, emoji, note }, { onConflict: 'date' });
+  } catch(e) { console.warn('Save mood failed:', e.message); }
+}
+
+// Delete mood from Supabase
+async function deleteMood(dateStr) {
+  delete appData.moods[dateStr];
+  try {
+    await sb.from('moods').delete().eq('date', dateStr);
+  } catch(e) { console.warn('Delete mood failed:', e.message); }
+}
+
+// Save wish to Supabase
+async function addWish(title) {
+  try {
+    const res = await sb.from('wishes').insert({ title, fulfilled: false }).select();
+    if (res.data?.[0]) {
+      appData.wishes.unshift({ id: res.data[0].id, title, fulfilled: false, createdAt: res.data[0].created_at });
+    }
+  } catch(e) { console.warn('Add wish failed:', e.message); }
+}
+
+// Toggle wish fulfilled
+async function toggleWish(id, fulfilled) {
+  const w = appData.wishes.find(w => w.id === id);
+  if (w) w.fulfilled = fulfilled;
+  try {
+    await sb.from('wishes').update({ fulfilled }).eq('id', id);
+  } catch(e) { console.warn('Toggle wish failed:', e.message); }
+}
+
+// Delete wish
+async function deleteWish(id) {
+  appData.wishes = appData.wishes.filter(w => w.id !== id);
+  try {
+    await sb.from('wishes').delete().eq('id', id);
+  } catch(e) { console.warn('Delete wish failed:', e.message); }
+}
+
+// Save note to Supabase
+async function addNote(author, type, content) {
+  try {
+    const res = await sb.from('notes').insert({ author, type, content }).select();
+    if (res.data?.[0]) {
+      const n = res.data[0];
+      appData.notes.push({ id: n.id, author: n.author, type: n.type, content: n.content, time: n.created_at });
+    }
+  } catch(e) { console.warn('Add note failed:', e.message); }
+}
 
 // ============================================
 // NAVIGATION
@@ -860,11 +924,10 @@ function renderCalendar() {
   });
 
   grid.querySelectorAll('.cal-day:not(.other)').forEach(day => {
-    day.addEventListener('contextmenu', (e) => {
+    day.addEventListener('contextmenu', async (e) => {
       e.preventDefault();
       if (appData.moods[day.dataset.date]) {
-        delete appData.moods[day.dataset.date];
-        saveData(appData);
+        await deleteMood(day.dataset.date);
         renderCalendar();
       }
     });
@@ -931,15 +994,11 @@ function openMoodPicker(dateStr) {
   document.getElementById('mood-note-input').value = mood ? mood.note : '';
 }
 
-document.getElementById('mood-save').addEventListener('click', () => {
+document.getElementById('mood-save').addEventListener('click', async () => {
   const selected = document.querySelector('.mood-opt.selected');
   const note = document.getElementById('mood-note-input').value.trim();
   if (selected && selectedDate) {
-    appData.moods[selectedDate] = {
-      emoji: selected.dataset.mood,
-      note: note
-    };
-    saveData(appData);
+    await saveMood(selectedDate, selected.dataset.mood, note);
     renderCalendar();
   }
   document.getElementById('mood-overlay').classList.remove('show');
@@ -1132,21 +1191,21 @@ function renderWishlist() {
 
   // Toggle fulfilled
   list.querySelectorAll('.wish-check').forEach(check => {
-    check.addEventListener('click', () => {
+    check.addEventListener('click', async () => {
       const idx = parseInt(check.dataset.idx);
-      appData.wishes[idx].fulfilled = !appData.wishes[idx].fulfilled;
-      saveData(appData);
+      const wish = appData.wishes[idx];
+      const newFulfilled = !wish.fulfilled;
+      await toggleWish(wish.id, newFulfilled);
       renderWishlist();
     });
   });
 
   // Delete
   list.querySelectorAll('.wish-del').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const idx = parseInt(btn.dataset.idx);
       if (confirm('删除这个愿望？')) {
-        appData.wishes.splice(idx, 1);
-        saveData(appData);
+        await deleteWish(appData.wishes[idx].id);
         renderWishlist();
       }
     });
@@ -1159,19 +1218,11 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-document.getElementById('wish-add').addEventListener('click', () => {
+document.getElementById('wish-add').addEventListener('click', async () => {
   const input = document.getElementById('wish-title-input');
   const title = input.value.trim();
   if (!title) return;
-
-  appData.wishes.push({
-    id: Date.now(),
-    title: title,
-    desc: '',
-    createdAt: new Date().toISOString(),
-    fulfilled: false
-  });
-  saveData(appData);
+  await addWish(title);
   input.value = '';
   renderWishlist();
 });
@@ -1287,20 +1338,13 @@ function renderNotes() {
   renderWordCloud();
 }
 
-function sendNote(author, type) {
+async function sendNote(author, type) {
   const inputId = type === 'happy' ? 'notes-input-happy' : 'notes-input-vent';
   const input = document.getElementById(inputId);
   const content = input.value.trim();
   if (!content) return;
 
-  appData.notes.push({
-    id: Date.now(),
-    author: author,
-    type: type,
-    content: content,
-    time: new Date().toISOString()
-  });
-  saveData(appData);
+  await addNote(author, type, content);
   input.value = '';
   renderNotes();
   const feedId = type === 'happy' ? 'notes-feed-happy' : 'notes-feed-vent';
@@ -1442,48 +1486,59 @@ document.getElementById('btn-import').addEventListener('click', () => {
   document.getElementById('import-file').click();
 });
 
-document.getElementById('import-file').addEventListener('change', (e) => {
+document.getElementById('import-file').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = (ev) => {
+  reader.onload = async (ev) => {
     try {
       const imported = JSON.parse(ev.target.result);
-      // Merge imported data with existing
+      // Push moods to Supabase
       if (imported.moods) {
-        // Merge moods: for each date, imported takes priority if it has more info
-        Object.entries(imported.moods).forEach(([date, val]) => {
-          const existing = appData.moods[date];
-          if (!existing || (typeof val === 'object' && val.note) || typeof existing === 'string') {
-            appData.moods[date] = val;
-          }
-        });
+        for (const [date, val] of Object.entries(imported.moods)) {
+          const emoji = typeof val === 'string' ? val : val.emoji;
+          const note = typeof val === 'string' ? '' : (val.note || '');
+          await saveMood(date, emoji, note);
+        }
       }
+      // Push wishes
       if (imported.wishes) {
-        const existingIds = new Set(appData.wishes.map(w => w.id));
-        imported.wishes.forEach(w => { if (!existingIds.has(w.id)) appData.wishes.push(w); });
+        for (const w of imported.wishes) {
+          await addWish(w.title);
+        }
       }
+      // Push notes
       if (imported.notes) {
-        const existingIds = new Set(appData.notes.map(n => n.id));
-        imported.notes.forEach(n => { if (!existingIds.has(n.id)) appData.notes.push(n); });
+        for (const n of imported.notes) {
+          await addNote(n.author || 'boy', n.type || 'happy', n.content);
+        }
       }
-      saveData(appData);
-      alert('✅ 数据导入成功！');
+      alert('✅ 数据导入成功！刷新页面同步最新数据');
       location.reload();
     } catch(err) {
-      alert('❌ 导入失败，请检查文件格式');
+      alert('❌ 导入失败：' + err.message);
     }
   };
   reader.readAsText(file);
   e.target.value = '';
 });
 
+// Auto-refresh data when switching to key pages
+async function refreshData() {
+  await loadAllData();
+}
+
+// Periodically refresh data (every 30s) to sync between devices
+setInterval(refreshData, 30000);
+
 // ============================================
 // INITIALIZATION
 // ============================================
-function init() {
+async function init() {
   updateHomeDays();
   document.getElementById('page-home').classList.add('active');
+  // Load data from Supabase (with local fallback for offline)
+  await loadAllData();
 }
 
 init();
