@@ -492,13 +492,41 @@ body::before{
 /* ============================================
    RESPONSIVE
    ============================================ */
+@media(max-width:640px){
+  .notes-two-col{grid-template-columns:1fr}
+}
 @media(max-width:600px){
-  .nav-btn{font-size:11px;padding:5px 9px;gap:2px}
-  .card{padding:16px}
+  .topbar{gap:2px;padding:8px 8px;overflow-x:auto;flex-wrap:nowrap;justify-content:flex-start;-webkit-overflow-scrolling:touch}
+  .topbar::-webkit-scrollbar{display:none}
+  .nav-btn{font-size:10px;padding:5px 8px;gap:1px;flex-shrink:0}
+  .card{padding:14px}
+  .card-title{font-size:17px}
+  .app{padding:0 8px 60px}
+  .home-title{font-size:28px}
   .home-days-num{font-size:36px}
-  .cal-day{font-size:11px;min-height:32px}
-  .cal-day .mood-emoji{font-size:13px}
-  .note-bubble{max-width:92%}
+  .home-days{padding:20px 28px}
+  .home-cards{gap:6px}
+  .home-card{width:64px;padding:14px 6px}
+  .home-card .hc-icon{font-size:22px}
+  .home-card .hc-title{font-size:10px}
+  .home-anni-item{padding:10px 14px;gap:8px}
+  .ha-date{font-size:10px;min-width:56px}
+  .ha-event{font-size:12px}
+  .ha-days,.ha-days span{font-size:16px}
+  .cal-day{font-size:10px;min-height:28px}
+  .cal-day .mood-emoji{font-size:12px}
+  .cal-day .day-num{font-size:10px}
+  .cal-grid{gap:2px}
+  #map-container{height:320px}
+  .journey-stat{min-width:60px}
+  .js-num{font-size:22px}
+  .note-bubble{max-width:95%}
+  .note-content{font-size:13px}
+  .notes-input-area textarea{font-size:12px}
+  .home-initials{gap:4px}
+  .hi-letter{width:34px;height:34px;font-size:22px}
+  .lb-nav{width:32px;height:32px;font-size:16px}
+  .lb-prev{left:6px}.lb-next{right:6px}
 }
 </style>
 </head>
