@@ -682,6 +682,11 @@ body::before{
      PAGE 5: NOTES (碎碎念)
      ============================================ -->
 <section class="page" id="page-notes">
+  <div style="text-align:center;margin-bottom:12px">
+    <span style="font-size:12px;color:var(--text-light);margin-right:8px">我是：</span>
+    <button class="btn btn-sm" id="who-boy" onclick="setWho('boy')" style="margin:2px">👧 kkk</button>
+    <button class="btn btn-sm" id="who-girl" onclick="setWho('girl')" style="margin:2px">👸 小YY</button>
+  </div>
   <div class="notes-two-col">
     <!-- Left: Happy Sharing -->
     <div class="card notes-happy">
@@ -690,7 +695,7 @@ body::before{
       <div class="notes-feed" id="notes-feed-happy"></div>
       <div class="notes-input-area">
         <textarea id="notes-input-happy" placeholder="分享今天的快乐..." rows="1"></textarea>
-        <button class="notes-send happy-send" onclick="sendNote('boy','happy')">➤</button>
+        <button class="notes-send happy-send" onclick="sendMyNote('happy')">➤</button>
       </div>
     </div>
     <!-- Right: Vent -->
@@ -700,7 +705,7 @@ body::before{
       <div class="notes-feed" id="notes-feed-vent"></div>
       <div class="notes-input-area">
         <textarea id="notes-input-vent" placeholder="吐槽一下今天..." rows="1"></textarea>
-        <button class="notes-send vent-send" onclick="sendNote('boy','vent')">➤</button>
+        <button class="notes-send vent-send" onclick="sendMyNote('vent')">➤</button>
       </div>
     </div>
   </div>
@@ -1244,6 +1249,17 @@ document.getElementById('wish-title-input').addEventListener('keydown', (e) => {
 // ============================================
 // PAGE 5: NOTES (开心分享 + 情绪垃圾桶)
 // ============================================
+let currentWho = localStorage.getItem('who') || 'boy';
+const WHO_LABEL = { boy: '👧 kkk', girl: '👸 小YY' };
+
+function setWho(who) {
+  currentWho = who;
+  localStorage.setItem('who', who);
+  document.getElementById('who-boy').style.background = who === 'boy' ? 'var(--blue-200)' : '';
+  document.getElementById('who-girl').style.background = who === 'girl' ? 'var(--pink-200)' : '';
+}
+// Init who buttons
+setWho(currentWho);
 function renderNotesFeed(feedId, notes, type) {
   const feed = document.getElementById(feedId);
   const filtered = notes.filter(n => n.type === type);
@@ -1265,7 +1281,7 @@ function renderNotesFeed(feedId, notes, type) {
       : '';
     lastDate = dateStr;
 
-    const authorLabel = n.author === 'boy' ? '👦' : '👧';
+    const authorLabel = WHO_LABEL[n.author] || n.author;
     const time = d.toLocaleString('zh-CN', { hour:'2-digit', minute:'2-digit' });
     return `${dateSep}<div class="note-bubble ${n.author}">
       <div class="note-author">${authorLabel} <span style="font-size:10px">${time}</span></div>
@@ -1345,6 +1361,8 @@ function renderNotes() {
   renderWordCloud();
 }
 
+function sendMyNote(type) { sendNote(currentWho, type); }
+
 async function sendNote(author, type) {
   const inputId = type === 'happy' ? 'notes-input-happy' : 'notes-input-vent';
   const input = document.getElementById(inputId);
@@ -1365,7 +1383,7 @@ async function sendNote(author, type) {
   document.getElementById(inputId).addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      sendNote('boy', type);
+      sendMyNote(type);
     }
   });
 });
