@@ -743,106 +743,81 @@ body::before{
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
 </script>
-<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
-// Check if Supabase SDK loaded
-if (typeof window.supabase === 'undefined') {
-  document.addEventListener('DOMContentLoaded', () => {
-    document.body.insertAdjacentHTML('afterbegin', '<div style="position:fixed;top:0;left:0;right:0;background:#FF5252;color:white;text-align:center;padding:8px;z-index:9999;font-size:13px">⚠️ 数据服务加载失败，请检查网络后刷新页面</div>');
-  });
-}
 // ============================================
-// SUPABASE + LOCAL STORAGE DATA LAYER
+// SUPABASE REST API DATA LAYER (no SDK needed)
 // ============================================
-const SUPABASE_URL = 'https://ouvpvukpmrlzjnvrqpfs.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im91dnB2dWtwbXJsempudnJxcGZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwNTM2NDgsImV4cCI6MjA5ODYyOTY0OH0.Uqag616tShyOfuQ9ehb3lmfDPLZ9sjjE4XL8Djst3iY';
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const SB_URL = 'https://ouvpvukpmrlzjnvrqpfs.supabase.co/rest/v1';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im91dnB2dWtwbXJsempudnJxcGZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwNTM2NDgsImV4cCI6MjA5ODYyOTY0OH0.Uqag616tShyOfuQ9ehb3lmfDPLZ9sjjE4XL8Djst3iY';
+const SB_HEAD = { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=representation' };
 
-// Local cache for fast access
 let appData = { moods: {}, wishes: [], notes: [] };
 
-// Load all data from Supabase on startup
+async function sbFetch(path, opts = {}) {
+  const res = await fetch(SB_URL + path, { headers: SB_HEAD, ...opts });
+  if (!res.ok) throw new Error(res.status);
+  if (res.status === 204) return [];
+  return res.json();
+}
+
 async function loadAllData() {
   try {
-    const [moodsRes, wishesRes, notesRes] = await Promise.all([
-      sb.from('moods').select('*').order('date'),
-      sb.from('wishes').select('*').order('created_at', { ascending: false }),
-      sb.from('notes').select('*').order('created_at', { ascending: true }),
+    const [m, w, n] = await Promise.all([
+      sbFetch('/moods?select=*&order=date'),
+      sbFetch('/wishes?select=*&order=created_at.desc'),
+      sbFetch('/notes?select=*&order=created_at'),
     ]);
-
-    if (moodsRes.data) {
-      const moodsMap = {};
-      moodsRes.data.forEach(r => { moodsMap[r.date] = { emoji: r.emoji, note: r.note || '' }; });
-      appData.moods = moodsMap;
-    }
-    if (wishesRes.data) appData.wishes = wishesRes.data.map(r => ({ id: r.id, title: r.title, fulfilled: r.fulfilled, createdAt: r.created_at }));
-    if (notesRes.data) appData.notes = notesRes.data.map(r => ({ id: r.id, author: r.author, type: r.type, content: r.content, time: r.created_at }));
+    const moodsMap = {};
+    m.forEach(r => { moodsMap[r.date] = { emoji: r.emoji, note: r.note || '' }; });
+    appData.moods = moodsMap;
+    appData.wishes = w.map(r => ({ id: r.id, title: r.title, fulfilled: r.fulfilled, createdAt: r.created_at }));
+    appData.notes = n.map(r => ({ id: r.id, author: r.author, type: r.type, content: r.content, time: r.created_at }));
+    setOnlineStatus(true, '');
   } catch(e) {
-    console.warn('Supabase load failed, using local fallback:', e.message);
+    console.warn('Load failed:', e.message);
+    setOnlineStatus(false, '数据库连接失败');
     loadLocalFallback();
   }
 }
 
-// Local fallback
 function loadLocalFallback() {
+  try { const r = localStorage.getItem('our_story_data'); if (r) appData = JSON.parse(r); } catch(e) {}
+}
+
+async function saveMood(dateStr, emoji, note) {
+  appData.moods[dateStr] = { emoji, note };
+  try { await sbFetch('/moods?date=eq.' + encodeURIComponent(dateStr), { method: 'DELETE' }); } catch(e) {}
+  try { await sbFetch('/moods', { method: 'POST', body: JSON.stringify({ date: dateStr, emoji, note }) }); } catch(e) {}
+}
+
+async function deleteMood(dateStr) {
+  delete appData.moods[dateStr];
+  try { await sbFetch('/moods?date=eq.' + encodeURIComponent(dateStr), { method: 'DELETE' }); } catch(e) {}
+}
+
+async function addWish(title) {
   try {
-    const raw = localStorage.getItem('our_story_data');
-    if (raw) appData = JSON.parse(raw);
+    const data = await sbFetch('/wishes', { method: 'POST', body: JSON.stringify({ title, fulfilled: false }) });
+    if (data[0]) appData.wishes.unshift({ id: data[0].id, title, fulfilled: false, createdAt: data[0].created_at });
   } catch(e) {}
 }
 
-// Save mood to Supabase
-async function saveMood(dateStr, emoji, note) {
-  appData.moods[dateStr] = { emoji, note };
-  try {
-    await sb.from('moods').upsert({ date: dateStr, emoji, note }, { onConflict: 'date' });
-  } catch(e) { console.warn('Save mood failed:', e.message); }
-}
-
-// Delete mood from Supabase
-async function deleteMood(dateStr) {
-  delete appData.moods[dateStr];
-  try {
-    await sb.from('moods').delete().eq('date', dateStr);
-  } catch(e) { console.warn('Delete mood failed:', e.message); }
-}
-
-// Save wish to Supabase
-async function addWish(title) {
-  try {
-    const res = await sb.from('wishes').insert({ title, fulfilled: false }).select();
-    if (res.data?.[0]) {
-      appData.wishes.unshift({ id: res.data[0].id, title, fulfilled: false, createdAt: res.data[0].created_at });
-    }
-  } catch(e) { console.warn('Add wish failed:', e.message); }
-}
-
-// Toggle wish fulfilled
 async function toggleWish(id, fulfilled) {
   const w = appData.wishes.find(w => w.id === id);
   if (w) w.fulfilled = fulfilled;
-  try {
-    await sb.from('wishes').update({ fulfilled }).eq('id', id);
-  } catch(e) { console.warn('Toggle wish failed:', e.message); }
+  try { await sbFetch('/wishes?id=eq.' + id, { method: 'PATCH', body: JSON.stringify({ fulfilled }) }); } catch(e) {}
 }
 
-// Delete wish
 async function deleteWish(id) {
   appData.wishes = appData.wishes.filter(w => w.id !== id);
-  try {
-    await sb.from('wishes').delete().eq('id', id);
-  } catch(e) { console.warn('Delete wish failed:', e.message); }
+  try { await sbFetch('/wishes?id=eq.' + id, { method: 'DELETE' }); } catch(e) {}
 }
 
-// Save note to Supabase
 async function addNote(author, type, content) {
   try {
-    const res = await sb.from('notes').insert({ author, type, content }).select();
-    if (res.data?.[0]) {
-      const n = res.data[0];
-      appData.notes.push({ id: n.id, author: n.author, type: n.type, content: n.content, time: n.created_at });
-    }
-  } catch(e) { console.warn('Add note failed:', e.message); }
+    const data = await sbFetch('/notes', { method: 'POST', body: JSON.stringify({ author, type, content }) });
+    if (data[0]) appData.notes.push({ id: data[0].id, author, type, content, time: data[0].created_at });
+  } catch(e) {}
 }
 
 // ============================================
@@ -1582,7 +1557,7 @@ function setOnlineStatus(status, msg) {
 
 async function checkSupabaseConnection() {
   try {
-    const res = await sb.from('moods').select('date').limit(1);
+    await sbFetch('/moods?select=date&limit=1');
     setOnlineStatus(true, '');
   } catch(e) {
     setOnlineStatus(false, '数据库连接失败');
@@ -1595,10 +1570,8 @@ async function checkSupabaseConnection() {
 async function init() {
   updateHomeDays();
   document.getElementById('page-home').classList.add('active');
-  if (typeof window.supabase !== 'undefined') {
-    await loadAllData();
-    await checkSupabaseConnection();
-  }
+  await loadAllData();
+  await checkSupabaseConnection();
 }
 
 init();
